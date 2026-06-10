@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Corvus ML Schematic</title>
+<style>
+  html,body{margin:0;background:#06070a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .cml-wrap{max-width:760px;margin:0 auto;padding:14px;color:#e7ebf0;}
+  .cml-stage{position:relative;background:#0a0c11;border:0.5px solid rgba(255,255,255,0.10);border-radius:14px;overflow:hidden;}
+  #cml-canvas{display:block;width:100%;height:auto;}
+  .cml-cap{position:absolute;top:14px;left:16px;right:16px;pointer-events:none;}
+  .cml-step-no{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#7f8a99;font-weight:500;}
+  .cml-cap-t{font-size:20px;font-weight:500;margin:2px 0 4px;color:#f3f6fa;}
+  .cml-cap-d{font-size:14px;line-height:1.55;color:#aab4c2;max-width:60%;}
+  .cml-ctrl{display:flex;align-items:center;gap:14px;margin-top:14px;flex-wrap:wrap;}
+  .cml-btn{font:inherit;font-size:14px;font-weight:500;color:#e7ebf0;background:#171b22;border:0.5px solid rgba(255,255,255,0.14);border-radius:9px;padding:8px 16px;cursor:pointer;transition:background .15s,border-color .15s;}
+  .cml-btn:hover{background:#1f242d;border-color:rgba(255,255,255,0.28);}
+  .cml-steps{display:flex;gap:7px;margin-left:auto;}
+  .cml-dot{font:inherit;font-size:13px;font-weight:500;width:32px;height:32px;border-radius:8px;color:#8893a0;background:#11151b;border:0.5px solid rgba(255,255,255,0.10);cursor:pointer;transition:all .15s;}
+  .cml-dot:hover{color:#e7ebf0;border-color:rgba(255,255,255,0.30);}
+  .cml-dot.on{color:#06070a;background:#e7ebf0;border-color:#e7ebf0;}
+  .cml-foot{font-size:12px;color:#6b7480;margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="cml-wrap">
+  <div class="cml-stage">
+    <canvas id="cml-canvas"></canvas>
+    <div class="cml-cap">
+      <div class="cml-step-no" id="cml-no">Step 1 of 8</div>
+      <div class="cml-cap-t" id="cml-t">A wall of points</div>
+      <div class="cml-cap-d" id="cml-d">To a computer, a LiDAR scan is just a pile of laser dots. Where does one tree stop and the next start?</div>
+    </div>
+  </div>
+  <div class="cml-ctrl">
+    <button class="cml-btn" id="cml-play">&#9654;&nbsp; Play</button>
+    <div class="cml-steps" id="cml-steps"></div>
+  </div>
+  <div class="cml-foot">Schematic of the Corvus / TreeLearn pipeline. Illustrative, not real point-cloud data.</div>
+</div>
+<script>
+(function(){
+  var cv=document.getElementById('cml-canvas'),ctx=cv.getContext('2d');
+  var W=760,H=440,dpr=Math.min(window.devicePixelRatio||1,2);
+  cv.width=W*dpr;cv.height=H*dpr;cv.style.aspectRatio=W+'/'+H;ctx.scale(dpr,dpr);
+
+  var trees=[
+    {cx:228,cy:212,r:100,bx:228,by:382,col:[128,96,255]},
+    {cx:392,cy:188,r:114,bx:392,by:390,col:[43,210,128]},
+    {cx:556,cy:218,r:96, bx:556,by:382,col:[255,96,172]}
+  ];
+  var grey=[140,151,164];
+  function rr(){return Math.random();}
+  function gg(){return (rr()+rr()+rr()-1.5)/1.5;}
+  function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
+  function rect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+  var pts=[];
+  trees.forEach(function(t,ti){
+    for(var i=0;i<250;i++){
+      var ang=rr()*Math.PI*2,rad=Math.pow(rr(),0.6)*t.r;
+      var x=t.cx+Math.cos(ang)*rad*1.05,y=t.cy+Math.sin(ang)*rad*0.9;
+      if(i<30){x=t.bx+gg()*5;y=t.by-rr()*(t.by-t.cy);}
+      pts.push({ox:x,oy:y,vx:Math.round(x/9)*9,vy:Math.round(y/9)*9,bx:t.bx+gg()*10,by:t.by-6+gg()*8,tree:ti,ground:false,x:x,y:y,tx:x,ty:y});
+    }
+  });
+  for(var i=0;i<185;i++){var x=44+rr()*672,y=400+rr()*32;pts.push({ox:x,oy:y,vx:Math.round(x/9)*9,vy:Math.round(y/9)*9,bx:x,by:y,tree:-1,ground:true,x:x,y:y,tx:x,ty:y});}
+
+  var arrows=[];
+  trees.forEach(function(t){for(var k=0;k<8;k++){var a=(k/8)*Math.PI*2;arrows.push({x:t.cx+Math.cos(a)*t.r*0.72,y:t.cy+Math.sin(a)*t.r*0.56,bx:t.bx,by:t.by-8,col:t.col});}});
+
+  var caps=[
+    ["A wall of points","Our drone scan is millions of laser dots. To a computer it is just a pile. Where does one tree stop and the next begin?"],
+    ["Tidy the dots onto a grid","First we line the dots up on an even grid, like graph paper, so the computer sees a neat picture instead of messy scatter."],
+    ["It learns from examples","We teach the network with thousands of trees we have already picked out by hand. It learns the patterns that make a tree."],
+    ["Tree, or not a tree","Now we point it at our own scan. For every dot it decides: part of a tree, or not? The ground and clutter drop away."],
+    ["A nudge toward home","Then it gives every dot a little push toward the middle of the tree it belongs to. Watch the trees pull apart."],
+    ["Group the dots into trees","Now the dots sit in neat, separate piles, and each pile gets its own colour. Each pile is one tree."],
+    ["Every tree found","We put the dots back where they started, keeping their colours. Every single tree, picked out on its own."],
+    ["Measure every tree precisely","Now each individual tree can be measured on its own: its height, its crown, its position. Precisely, one tree at a time."]
+  ];
+  var NB=caps.length;
+
+  var st={colorMix:0,groundA:1,arrowA:0,measureA:0,netMix:0,gridA:0};
+  var tg={colorMix:0,groundA:1,arrowA:0,measureA:0,netMix:0,gridA:0};
+  var beat=1,phase=0;
+
+  function posFor(p,n){
+    if(p.ground){return n<=1?[p.ox,p.oy]:[p.vx,p.vy];}
+    if(n<=1)return [p.ox,p.oy];
+    if(n<=4)return [p.vx,p.vy];
+    if(n<=6)return [p.bx,p.by];
+    return [p.ox,p.oy];
+  }
+  function setBeat(n){
+    n=Math.max(1,Math.min(NB,n));beat=n;
+    pts.forEach(function(p){var t=posFor(p,n);p.tx=t[0];p.ty=t[1];});
+    tg.colorMix=n>=6?1:0; tg.groundA=n<=2?1:0.06; tg.arrowA=n===5?1:0;
+    tg.measureA=n===8?1:0; tg.netMix=n===3?1:0; tg.gridA=n===2?1:0;
+    document.getElementById('cml-no').textContent='Step '+n+' of '+NB;
+    document.getElementById('cml-t').textContent=caps[n-1][0];
+    document.getElementById('cml-d').textContent=caps[n-1][1];
+    document.querySelectorAll('.cml-dot').forEach(function(d){d.classList.toggle('on',+d.dataset.b===n);});
+  }
+
+  function drawNet(m){
+    ctx.save();ctx.globalAlpha=m;
+    var cy=212,bw=24;
+    var ex=[[trees[0].col,150],[trees[1].col,226],[trees[2].col,302]],exX=106;
+    ex.forEach(function(e){var c=e[0],y=e[1],cs='rgba('+c[0]+','+c[1]+','+c[2]+',';
+      ctx.lineWidth=1.2;ctx.fillStyle=cs+'0.18)';ctx.strokeStyle=cs+'0.8)';ctx.beginPath();ctx.ellipse(exX,y,26,22,0,0,6.283);ctx.fill();ctx.stroke();
+      ctx.strokeStyle=cs+'0.6)';ctx.beginPath();ctx.moveTo(exX,y+18);ctx.lineTo(exX,y+30);ctx.stroke();
+      ctx.fillStyle='rgba(43,210,128,0.95)';ctx.beginPath();ctx.arc(exX+23,y-15,7,0,6.283);ctx.fill();
+      ctx.strokeStyle='#06070a';ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(exX+20,y-15);ctx.lineTo(exX+22.5,y-12.5);ctx.lineTo(exX+26.5,y-18);ctx.stroke();
+      ctx.strokeStyle='rgba(140,151,164,0.45)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(exX+36,y);ctx.lineTo(236,cy);ctx.stroke();
+    });
+    ctx.fillStyle='rgba(140,151,164,0.7)';ctx.font='12px -apple-system,Segoe UI,Arial';ctx.textAlign='center';ctx.fillText('thousands of',exX,350);ctx.fillText('hand-picked trees',exX,365);ctx.textAlign='start';
+    var bars=[[250,228],[304,168],[358,116],[412,76],[466,54],[520,76],[574,116],[628,168],[682,228]];
+    ctx.strokeStyle='rgba(140,151,164,0.22)';ctx.lineWidth=1;
+    [[0,8],[1,7],[2,6],[3,5]].forEach(function(pr){var a=bars[pr[0]],b=bars[pr[1]];var ax=a[0]+bw/2,ay=cy-a[1]/2,bx=b[0]+bw/2,by=cy-b[1]/2;ctx.beginPath();ctx.moveTo(ax,ay);ctx.bezierCurveTo(ax,ay-44,bx,by-44,bx,by);ctx.stroke();});
+    ctx.strokeStyle='rgba(140,151,164,0.4)';ctx.beginPath();for(var i=0;i<bars.length;i++){var x=bars[i][0]+bw/2;if(i===0)ctx.moveTo(x,cy);else ctx.lineTo(x,cy);}ctx.stroke();
+    for(var i=0;i<bars.length;i++){var x=bars[i][0],h=bars[i][1],bn=(i===4);ctx.fillStyle=bn?'rgba(43,210,128,0.16)':'rgba(255,255,255,0.05)';ctx.strokeStyle=bn?'rgba(43,210,128,0.7)':'rgba(255,255,255,0.22)';ctx.lineWidth=1;rect(x,cy-h/2,bw,h,5);ctx.fill();ctx.stroke();}
+    var t=(phase*0.009)%1,x0=250+bw/2,x1=682+bw/2,px=x0+t*(x1-x0);
+    var gl=ctx.createRadialGradient(px,cy,0,px,cy,18);gl.addColorStop(0,'rgba(130,205,255,0.85)');gl.addColorStop(1,'rgba(130,205,255,0)');ctx.fillStyle=gl;ctx.beginPath();ctx.arc(px,cy,18,0,6.283);ctx.fill();
+    ctx.fillStyle='rgba(205,232,255,0.95)';ctx.beginPath();ctx.arc(px,cy,3,0,6.283);ctx.fill();
+    ctx.restore();
+  }
+  function drawMeasure(m){
+    ctx.save();ctx.globalAlpha=m;ctx.font='11px -apple-system,Segoe UI,Arial';
+    var info=[[16,7],[22,9],[14,6]];
+    trees.forEach(function(t,ti){
+      var topY=t.cy-t.r*0.82,c=t.col,cs='rgba('+c[0]+','+c[1]+','+c[2]+',';
+      ctx.strokeStyle=cs+'0.85)';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(t.bx,t.by);ctx.lineTo(t.bx,topY);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(t.bx-4,topY);ctx.lineTo(t.bx+4,topY);ctx.moveTo(t.bx-4,t.by);ctx.lineTo(t.bx+4,t.by);ctx.stroke();
+      ctx.beginPath();ctx.ellipse(t.cx,t.cy,t.r*0.96,t.r*0.78,0,0,6.283);ctx.strokeStyle=cs+'0.33)';ctx.stroke();
+      var label='h '+info[ti][0]+'m    crown '+info[ti][1]+'m',tw=ctx.measureText(label).width+14,tagY=Math.max(topY-28,116);
+      ctx.fillStyle='rgba(8,10,15,0.82)';rect(t.cx-tw/2,tagY,tw,19,4);ctx.fill();
+      ctx.strokeStyle=cs+'0.5)';ctx.lineWidth=0.5;rect(t.cx-tw/2,tagY,tw,19,4);ctx.stroke();
+      ctx.fillStyle='rgba(231,235,240,0.96)';ctx.textAlign='center';ctx.fillText(label,t.cx,tagY+13);
+    });
+    ctx.textAlign='start';ctx.restore();
+  }
+
+  function frame(){
+    phase++;
+    for(var k in tg){st[k]+=(tg[k]-st[k])*0.1;}
+    pts.forEach(function(p){p.x+=(p.tx-p.x)*0.1;p.y+=(p.ty-p.y)*0.1;});
+    ctx.clearRect(0,0,W,H);
+    if(st.gridA>0.01){ctx.strokeStyle='rgba(140,151,164,'+(st.gridA*0.10)+')';ctx.lineWidth=0.5;for(var gx=0;gx<=W;gx+=27){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,H);ctx.stroke();}for(var gy=0;gy<=H;gy+=27){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(W,gy);ctx.stroke();}}
+    if(st.netMix>0.01)drawNet(st.netMix);
+    if(st.arrowA>0.01){arrows.forEach(function(ar){var pa=st.arrowA;ctx.strokeStyle='rgba('+ar.col[0]+','+ar.col[1]+','+ar.col[2]+','+(pa*0.5)+')';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(ar.x,ar.y);ctx.lineTo(ar.bx,ar.by);ctx.stroke();var dx=ar.bx-ar.x,dy=ar.by-ar.y,L=Math.hypot(dx,dy);if(L<1)return;dx/=L;dy/=L;var hx=ar.bx-dx*9,hy=ar.by-dy*9,nx=-dy,ny=dx;ctx.beginPath();ctx.moveTo(ar.bx,ar.by);ctx.lineTo(hx+nx*4,hy+ny*4);ctx.lineTo(hx-nx*4,hy-ny*4);ctx.closePath();ctx.fillStyle='rgba('+ar.col[0]+','+ar.col[1]+','+ar.col[2]+','+(pa*0.6)+')';ctx.fill();});}
+    var hide=1-st.netMix;
+    for(var i=0;i<pts.length;i++){var p=pts[i],col,a;if(p.ground){col=grey;a=st.groundA*0.5*hide;}else{col=st.colorMix>0?mix(grey,trees[p.tree].col,st.colorMix):grey;a=0.92*hide;}if(a<=0.012)continue;ctx.fillStyle='rgba('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+','+a+')';ctx.beginPath();ctx.arc(p.x,p.y,1.5,0,6.283);ctx.fill();}
+    if(st.measureA>0.01)drawMeasure(st.measureA*hide);
+    requestAnimationFrame(frame);
+  }
+
+  var stepsEl=document.getElementById('cml-steps');
+  for(var b=1;b<=NB;b++){var d=document.createElement('button');d.className='cml-dot'+(b===1?' on':'');d.dataset.b=b;d.textContent=b;stepsEl.appendChild(d);}
+  var playing=null;
+  function play(){
+    if(playing){clearInterval(playing);playing=null;document.getElementById('cml-play').innerHTML='&#9654;&nbsp; Play';return;}
+    setBeat(1);var n=1;document.getElementById('cml-play').innerHTML='&#10073;&#10073;&nbsp; Pause';
+    playing=setInterval(function(){n++;if(n>NB){clearInterval(playing);playing=null;document.getElementById('cml-play').innerHTML='&#8634;&nbsp; Replay';return;}setBeat(n);},2300);
+  }
+  document.getElementById('cml-play').addEventListener('click',play);
+  stepsEl.querySelectorAll('.cml-dot').forEach(function(d){d.addEventListener('click',function(){if(playing){clearInterval(playing);playing=null;document.getElementById('cml-play').innerHTML='&#9654;&nbsp; Play';}setBeat(+d.dataset.b);});});
+  setBeat(1);requestAnimationFrame(frame);setTimeout(play,700);
+})();
+</script>
+</body>
+</html>
